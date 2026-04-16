@@ -1,0 +1,40 @@
+Provider,Website,extensions,query,AttFormat
+Standard,https://www.qdasoftware.org/,.qdpx,Codebook,.accdb
+MaxQDA,https://www.maxqda.com/,.qdc,Survey, .cpg
+NVivo,https://lumivero.com/products/nvivo/,.MQDA,qualitative coding, .csv
+ATLAS.ti,https://atlasti.com/,.MQBAC,qualitative codes, .dat
+Dedoose,https://www.dedoose.com/,.MQTC,qualitative code, .db
+QDAcity,https://qdacity.com,.MQEX,qualitative coded, .dbf
+QDA Miner,https://provalisresearch.com/products/qualitative-data-analysis-software/,.MQMTR,Dedoose, .do
+f4analyse,https://www.audiotranskription.de/en/,.MX24,REFI-QDA, .doc
+Quirkos,https://www.quirkos.com/,.MX24BAC,Maxqda, .docx
+,,.MC24,ATLAS.ti, .dta
+,,.MEX24,QDA Miner, .htm
+CAQDAS Software Overview,https://en.wikipedia.org/wiki/Computer-assisted_qualitative_data_analysis_software,.MX22,audiotranskription, .html
+,,.MX20,Quirkos, .jpg
+,,.MX18,coded transcripts, .mdb
+,,.MX12,thematic analysis, .ods
+,,.MX11,qualitative data, .pdf
+,,.MX5,CAQDAS, .png
+,,.MX4,qualitative Research, .por
+,,.MX3,.cat, .ppt
+,,.MX2,.ethnograph, .prj
+,,.M2K,.atlprojbundle, .psd
+,,.LOA,.atl, .rtf
+,,.SEA,.qdc, .sav
+,,.MTR,.f4project, .sbn
+,,.MOD,.qrk, .sbx
+,,.MEX22,interveiw transcripts, .shp
+,,.nvp,interveiw Data, .shx
+,,.nvpx,coded transcripts, .sps
+,,.atlasproj,coded interviews, .tab
+,,.hpr7,interveiw, .txt
+,,.qdpx, .prj, .xls
+,,.qdc,interviewees, .xlsx
+,,.ppj,interviewe, .xml 
+,,.pprj,quality , .zip
+,,.qlt,qualitative,.weft
+,,.f4p,qualitative search,.aqd
+,,.qpd ,qualitative study,.saturate
+,,.eth,.taguette,.raven
+,,.qlp,interview study,.delve
