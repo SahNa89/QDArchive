@@ -1,0 +1,1 @@
+.accdb, .cpg, .csv, .dat, .db, .dbf, .do, .doc, .docx, .dta, .htm, .html, .jpg, .mdb, .ods, .pdf, .png, .por, .ppt, .prj, .psd, .rtf, .sav, .sbn, .sbx, .shp, .shx, .sps, .tab, .txt, .xls, .xlsx, .xml , .zip

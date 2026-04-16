@@ -1,0 +1,3 @@
+pip install requests beautifulsoup4
+pip install requests beautifulsoup4 playwright
+playwright install chromium   # only needed if the API approach fails
