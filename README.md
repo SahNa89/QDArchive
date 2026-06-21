@@ -9,7 +9,7 @@
 Qualitative Data Analysis (QDA) helps researchers synthesize and structure information from unstructured data. Through qualitative coding — labeling data so that theoretical constructs are represented as codes — researchers build hierarchically structured code systems. QDArchive is a web service designed to **publish and archive qualitative research data, with an emphasis on QDA project files.
 
 This repository implements **Part 1: the Data Acquisition Pipeline, which automatically discovers, downloads, and stores QDA datasets from supported repositories.
-
+      
 ---
 
 ## Features
@@ -96,7 +96,7 @@ python scraper.py
 Before running, update the `ROOT` path in `Crawler.py` to your local download directory:
 
 ```python
-ROOT = r"/your/local/path/QDArchive/downloads"
+ROOT = r"/your/local/path/QDArchive/My downloads"
 ```
 
 Then run:
