@@ -134,7 +134,7 @@ Refer to `SQLiteMetaDataDatabaseSchema.csv` for full column definitions.
 
 ## Known Issues
 
-The pipeline has 4 open issues that represent active limitations:
+The pipeline has 5 open issues that represent active limitations:
 
 | # | Title | Summary |
 |---|---|---|
