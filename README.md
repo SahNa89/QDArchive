@@ -141,7 +141,8 @@ The pipeline has 5 open issues that represent active limitations:
 | [#1](https://github.com/SahNa89/QDArchive/issues/1) | Limitation | Databrary requires institutional auth; UK Data Service requires login for most datasets |
 | [#2](https://github.com/SahNa89/QDArchive/issues/2) | 401 Unauthorized | Download requests rejected — session cookies not shared between Playwright and `requests` |
 | [#3](https://github.com/SahNa89/QDArchive/issues/3) | Max retries exceeded | Connection timeouts when reaching the UK Data Service ReShare server |
-| [#4](https://github.com/SahNa89/QDArchive/issues/4) | API Block | Playwright times out on DataLumos pages — likely bot-detection or JS-heavy rendering | [#5](https://github.com/SahNa89/QDArchive/issues/5) | Not Accessible QDA Files | The project descriptions mention that the analysis was conducted using QDA applications, but the corresponding QDA files have not been shared. |
+| [#4](https://github.com/SahNa89/QDArchive/issues/4) | API Block | Playwright times out on DataLumos pages — likely bot-detection or JS-heavy rendering  |
+| [#5](https://github.com/SahNa89/QDArchive/issues/5) | Not Accessible QDA Files | The project descriptions mention that the analysis was conducted using QDA applications, but the corresponding QDA files have not been shared. |
 
 See the [Issues tab](https://github.com/SahNa89/QDArchive/issues) for full details.
 
