@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Iterable
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import errors as genai_errors
+from huggingface_hub import InferenceClient
+from huggingface_hub.errors import HfHubHTTPError
 
 try:
     import rarfile
@@ -207,7 +207,7 @@ def load_isic_classification_catalog(csv_path: Path | None = None) -> list[dict[
 
 
 # ============================================================
-# .env LOADING (GEMINI_API_KEY, optionally GEMINI_MODEL)
+# .env LOADING (HF_API_TOKEN, optionally HF_MODEL)
 # ============================================================
 
 def load_dotenv_file() -> None:
@@ -220,37 +220,30 @@ def load_dotenv_file() -> None:
 
 
 # ============================================================
-# GEMINI VIA GOOGLE'S GENERATIVE AI SDK (google-genai)
+# GEMMA 3 27B VIA HUGGING FACE'S HOSTED INFERENCE API
 # ============================================================
 
-# Switched from Hugging Face's Inference Providers router (Gemini 3 27B via
-# Featherless AI) after that endpoint started failing with persistent 504
-# Gateway Timeouts - Gemini is called via Google's official google-genai SDK.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
-GEMINI_REQUEST_TIMEOUT_MS = 60 * 1000
+# https://huggingface.co/google/gemma-3-27b-it lists Featherless AI as its
+# Inference Providers host, so the provider is pinned explicitly via HF's
+# documented "model:provider" suffix (https://huggingface.co/docs/inference-providers)
+# rather than relying on auto ("fastest") provider selection picking it up.
+HF_MODEL = os.environ.get("HF_MODEL", "google/gemma-3-27b-it:featherless-ai")
 
-_genai_client: genai.Client | None = None
-_genai_client_key: str | None = None
-
-
-def get_gemini_api_key() -> str | None:
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+_inference_client: InferenceClient | None = None
+_inference_client_token: str | None = None
 
 
-def get_genai_client() -> genai.Client | None:
-    """Lazily built, cached google-genai Client - rebuilt only if the key
-    changes. Returns None if no key is configured."""
-    global _genai_client, _genai_client_key
-    api_key = get_gemini_api_key()
-    if not api_key:
+def get_inference_client() -> InferenceClient | None:
+    """Lazily built, cached huggingface_hub InferenceClient - rebuilt only
+    if the token changes. Returns None if no token is configured."""
+    global _inference_client, _inference_client_token
+    token = os.environ.get("HF_API_TOKEN") or os.environ.get("HF_TOKEN")
+    if not token:
         return None
-    if _genai_client is None or _genai_client_key != api_key:
-        _genai_client = genai.Client(
-            api_key=api_key,
-            http_options={"timeout": GEMINI_REQUEST_TIMEOUT_MS},
-        )
-        _genai_client_key = api_key
-    return _genai_client
+    if _inference_client is None or _inference_client_token != token:
+        _inference_client = InferenceClient(api_key=token)
+        _inference_client_token = token
+    return _inference_client
 
 
 def estimate_token_count(text: str, *, chars_per_token: float = 4.0) -> int:
@@ -260,26 +253,26 @@ def estimate_token_count(text: str, *, chars_per_token: float = 4.0) -> int:
     return max(1, round(len(text) / chars_per_token)) if text else 0
 
 
-RATE_LIMIT_PAUSE_SECONDS = 5 * 60
+PAYMENT_REQUIRED_PAUSE_SECONDS = 5 * 60
 
 
-def call_gemini(text: str, labels: list[str], *, max_tokens: int = 20, retries: int = 1) -> str | None:
-    """One classification call to Gemini via Google's official google-genai
-    SDK. Requires GEMINI_API_KEY (or GOOGLE_API_KEY) to be set - see .env /
-    load_dotenv(). Returns the raw model reply text, or None if the key is
-    missing or the request fails for any reason (network, auth, model
-    unavailable) - every outcome is printed so it's visible whether a real
-    answer came back or the caller is about to fall back to the first
-    candidate label.
+def call_huggingface_gemma(text: str, labels: list[str], *, max_tokens: int = 20, retries: int = 1) -> str | None:
+    """One classification call to Gemma 3 27B via Hugging Face's hosted
+    Inference Providers API, through the official huggingface_hub client.
+    Requires HF_API_TOKEN (or HF_TOKEN) to be set - see .env / load_dotenv().
+    Returns the raw model reply text, or None if the token is missing or
+    the request fails for any reason (network, auth, model unavailable) -
+    every outcome is printed so it's visible whether a real answer came
+    back or the caller is about to fall back to the first candidate label.
 
-    A 429 (rate limit / quota exhausted) is treated as transient rather
-    than fatal: it pauses RATE_LIMIT_PAUSE_SECONDS and retries the same
-    call indefinitely, since quota can come back (daily reset) and the
-    caller's already-classified projects must not be reclassified/re-billed
-    on the next run."""
-    client = get_genai_client()
+    A 402 (out of Inference Providers credits) is treated as transient
+    rather than fatal: it pauses PAYMENT_REQUIRED_PAUSE_SECONDS and retries
+    the same call indefinitely, since credits/quota can come back (top-up,
+    daily reset) and the caller's already-classified projects must not be
+    reclassified/re-billed on the next run."""
+    client = get_inference_client()
     if client is None:
-        print("[LLM] GEMINI_API_KEY/GOOGLE_API_KEY not set - skipping API call, caller will use the fallback label")
+        print("[LLM] HF_API_TOKEN/HF_TOKEN not set - skipping API call, caller will use the fallback label")
         return None
 
     prompt = (
@@ -288,51 +281,55 @@ def call_gemini(text: str, labels: list[str], *, max_tokens: int = 20, retries: 
         "Respond with only the single best and deepest matching label and nothing else."
     )
     prompt_tokens = estimate_token_count(prompt)
-    print(f"[LLM] -> {GEMINI_MODEL}: {len(labels)} candidate label(s), prompt ~{prompt_tokens} tokens ({len(prompt)} chars)")
-
-    config = {"temperature": 0, "max_output_tokens": max_tokens}
+    print(f"[LLM] -> {HF_MODEL}: {len(labels)} candidate label(s), prompt ~{prompt_tokens} tokens ({len(prompt)} chars)")
 
     attempts = max(1, retries + 1)
     while True:
-        rate_limited = False
+        payment_required = False
         for attempt in range(1, attempts + 1):
             try:
-                response = client.models.generate_content(model=GEMINI_MODEL, config=config, contents=prompt)
-                content = str(response.text or "").strip()
+                completion = client.chat.completions.create(
+                    model=HF_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                    temperature=0,
+                )
+                content = str(completion.choices[0].message.content or "").strip()
                 print(f"[LLM] <- response: {content!r}")
                 return content
-            except genai_errors.APIError as exc:
-                status = getattr(exc, "code", None)
-                print(f"[LLM] <- HTTP error from Gemini (attempt {attempt}/{attempts}): {exc}")
-                if status == 429:
-                    rate_limited = True
+            except HfHubHTTPError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                print(f"[LLM] <- HTTP error from Hugging Face (attempt {attempt}/{attempts}): {exc}")
+                if status == 402:
+                    payment_required = True
                     break
                 if status in (401, 403):
-                    print("[LLM] Auth/permission error - check GEMINI_API_KEY is valid. Not retrying.")
+                    print("[LLM] Auth/permission error - check HF_API_TOKEN has 'Make calls to Inference "
+                          "Providers' permission. Not retrying.")
                     return None
                 if status == 404:
-                    print(f"[LLM] Model not found ({GEMINI_MODEL}) - check GEMINI_MODEL is correct. Not retrying.")
+                    print(f"[LLM] Model/provider not found ({HF_MODEL}) - check HF_MODEL is correct. Not retrying.")
                     return None
             except Exception as exc:
                 print(f"[LLM] <- request failed (attempt {attempt}/{attempts}): {exc}")
 
-        if not rate_limited:
+        if not payment_required:
             return None
 
-        print(f"[LLM] 429 Rate Limited - your Gemini API quota is exhausted. "
-              f"Pausing {RATE_LIMIT_PAUSE_SECONDS // 60} minutes before retrying "
+        print(f"[LLM] 402 Payment Required - your Hugging Face account has no Inference Providers "
+              f"credits left. Pausing {PAYMENT_REQUIRED_PAUSE_SECONDS // 60} minutes before retrying "
               "the same request (already-classified projects are safe - they're committed to the "
               "database as soon as they're classified)...")
-        time.sleep(RATE_LIMIT_PAUSE_SECONDS)
+        time.sleep(PAYMENT_REQUIRED_PAUSE_SECONDS)
         print("[LLM] resuming after pause")
 
 
 def match_isic_label(answer: str, labels: list[str]) -> str | None:
-    """Matches one Gemini answer fragment against the candidate label list.
+    """Matches one Gemma answer fragment against the candidate label list.
     Exact-match first, then longest-substring-wins: ISIC candidate codes
     are hierarchical ("A01" is a literal substring of "A0111"), so naively
     returning the first substring match could return a coarser code than
-    the one Gemini actually picked."""
+    the one Gemma actually picked."""
     if not answer:
         return None
     upper = answer.upper()
@@ -353,14 +350,14 @@ _BATCH_ANSWER_LINE_RE = re.compile(r"(\d+)\s*[:\-]\s*([A-Za-z0-9]+)")
 
 
 def run_yes_no_batch_check(prompt_text: str, projects: list[dict]) -> dict[int, bool]:
-    """Runs one Gemini batch call expecting a YES/NO verdict per project
+    """Runs one Gemma batch call expecting a YES/NO verdict per project
     (numbered by its 1-based position in `projects`), returns id -> bool.
     A project with no parseable answer line defaults to False, same as an
     explicit "NO" - it just falls through to whatever check runs next."""
     results = {p["id"]: False for p in projects}
     if not projects:
         return results
-    answer = call_gemini(prompt_text, ["YES", "NO"], max_tokens=10 * len(projects))
+    answer = call_huggingface_gemma(prompt_text, ["YES", "NO"], max_tokens=10 * len(projects))
     if not answer:
         return results
     by_position = {i: p["id"] for i, p in enumerate(projects, start=1)}
@@ -453,7 +450,7 @@ def classify_projects_type_batch(projects: list[dict]) -> dict[int, str]:
     projects (dicts with id/description/query_string/extensions/file_names).
     The deterministic extension/query_string check runs first and settles a
     project without any LLM call. Only what's still undecided goes to
-    Gemini - first a batched YES/NO check for QDA-software use, then (for
+    Gemma - first a batched YES/NO check for QDA-software use, then (for
     whatever's still undecided after that) a batched YES/NO check for
     qualitative-data use - so a project already settled by QDA_PROJECT
     never gets asked about QD_PROJECT. Anything left undecided after both
@@ -515,7 +512,7 @@ def build_isic_batch_classification_text(projects: list[dict], catalog: list[dic
 
 
 def classify_projects_isic_class_batch(projects: list[dict], catalog: list[dict[str, str]]) -> dict[int, str]:
-    """Classifies up to LLM_BATCH_SIZE projects in a single Gemini call -
+    """Classifies up to LLM_BATCH_SIZE projects in a single Gemma call -
     one call per batch instead of one per project keeps API usage/credits
     down. The reply is matched back to each project's id by its 1-based
     position in the batch; any project whose line is missing or doesn't
@@ -527,7 +524,7 @@ def classify_projects_isic_class_batch(projects: list[dict], catalog: list[dict[
         return results
 
     text = build_isic_batch_classification_text(projects, catalog)
-    answer = call_gemini(text, candidate_labels, max_tokens=20 * len(projects))
+    answer = call_huggingface_gemma(text, candidate_labels, max_tokens=20 * len(projects))
     if not answer:
         print(f"[LLM] no response for batch of {len(projects)} project(s) - "
               f"using fallback label {fallback_label!r} for all of them")
@@ -599,7 +596,7 @@ def assign_project_classes(
     run). That makes a run resumable at project granularity: re-running
     only ever fetches WHERE class = 'UNKNOWN', so a project already
     classified in a prior run (or earlier in this one) is never re-sent to
-    the LLM/re-billed, and a crash or a call_gemini 429 pause
+    the LLM/re-billed, and a crash or a call_huggingface_gemma 402 pause
     loses at most the in-flight batch. To force reclassification of
     specific projects, set their class column back to 'UNKNOWN' before
     running."""
@@ -612,7 +609,7 @@ def assign_project_classes(
         fetch_size = batch_size if limit is None else min(batch_size, limit - project_updates)
         cursor.execute(
             f'SELECT {select_cols} FROM "{projects_table}" '
-            'WHERE id < 2000 and class = "UNKNOWN" AND type IN ("QDA_PROJECT", "QD_PROJECT") LIMIT ?',
+            'WHERE class = "UNKNOWN" AND type IN ("QDA_PROJECT", "QD_PROJECT") LIMIT ?',
             (fetch_size,),
         )
         batch_rows = cursor.fetchall()
@@ -770,19 +767,19 @@ def assign_types_and_classes(
 def main() -> None:
     load_dotenv_file()
 
-    parser = argparse.ArgumentParser(description="Assign class values via Gemini and type values via extension/query heuristics")
+    parser = argparse.ArgumentParser(description="Assign class values via Gemma 3 27B (Hugging Face) and type values via extension/query heuristics")
     parser.add_argument("--db", type=Path, default=default_database_path(), help="Path to the SQLite database")
     parser.add_argument("--limit", type=int, default=None, help="Only process the next N still-pending projects per task (class = 'UNKNOWN' / type = 'NOT_A_PROJECT') - for a cheap test run before committing to a full pass")
-    parser.add_argument("--batch-size", type=int, default=LLM_BATCH_SIZE, help=f"Number of projects sent to Gemini per API call (default {LLM_BATCH_SIZE})")
+    parser.add_argument("--batch-size", type=int, default=LLM_BATCH_SIZE, help=f"Number of projects sent to Gemma per API call (default {LLM_BATCH_SIZE})")
     args = parser.parse_args()
 
     db_path = args.db.resolve() if args.db.is_absolute() else (Path.cwd() / args.db).resolve()
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
 
-    if not get_gemini_api_key():
-        print("[WARN] GEMINI_API_KEY not set (checked .env and the environment) - "
-              "Gemini classification will fall back to the first candidate label for every project.")
+    if not (os.environ.get("HF_API_TOKEN") or os.environ.get("HF_TOKEN")):
+        print("[WARN] HF_API_TOKEN not set (checked .env and the environment) - "
+              "Gemma classification will fall back to the first candidate label for every project.")
 
     conn = sqlite3.connect(db_path)
     try:
